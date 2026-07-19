@@ -59,8 +59,10 @@
 | `017_nav_rls` | RLS на `menu_item` (фильтр по role_code из JWT) |
 | `018_logout` | `logout()` — SECURITY DEFINER, доступ app-ролям; инкремент `token_version` текущего пользователя (инвалидация всех сессий) |
 | `018a_change_password` | `change_password(old_password, new_password)` — bcrypt-проверка старого пароля, SECURITY DEFINER, доступ app-ролям; инкремент `token_version` (инвалидация прочих сессий), согласно `access-and-roles-business.md` / `backend-access-and-roles.md` |
-| `019_issue_work_order` | `issue_work_order(work_order_id, task_id)` — created→open, SECURITY DEFINER; проверка: работа = лист, org_unit совпадает с зоной диспетчера |
-| `020_cancel_work_order` | `cancel_work_order(work_order_id)` → canceled, SECURITY DEFINER; строки `work_order_task` остаются без изменений; `work_order_task_fact` не создаётся |
+
+> `issue_work_order`/`cancel_work_order` перенесены в раздел 2.6 (`042a`/`042b`) — физически
+> зависят от таблицы `work_order`, которая появляется только там; нумерация `019`/`020` в этом
+> разделе логически противоречила бы порядку создания объектов.
 
 ## 2.4 — Ядро: проекты, работы, единицы
 
@@ -94,8 +96,11 @@
 | Миграция | Содержание |
 |----------|------------|
 | `040_work_order` | Наряд + аудит + RLS (диспетчер CRUD открытых; планировщик read-only) |
-| `041_work_order_task` | Строка наряда + аудит + RLS |
+| `041_work_order_task` | Строка наряда — плановая привязка через `task_daily_plan_id` (не `task_id`+`plan_qty` напрямую: работа/участок/день и объём уже заданы дневным планом) + аудит + RLS |
+| `041a_work_order_task_fact` | Факт-строка `work_order_task_fact`: SELECT read-only всем в зоне видимости; INSERT/UPDATE/DELETE запрещены через REST — заполняется только `close_work_order()` |
 | `042_wo_task_triggers` | Работа = лист, plan_qty > 0, percent_done < 100, секция обязательна для секционированных |
+| `042a_issue_work_order` | `issue_work_order(work_order_id)` — created→open, SECURITY DEFINER; проверка: работа = лист, org_unit совпадает с зоной диспетчера |
+| `042b_cancel_work_order` | `cancel_work_order(work_order_id)` → canceled, SECURITY DEFINER; строки `work_order_task` остаются без изменений; `work_order_task_fact` не создаётся |
 | `043_close_work_order_v1` | SECURITY DEFINER: суммирование факта, percent_done, actual_start/end, роллап по дереву |
 
 ## 2.7 — Ресурсы (×3 вида, 18 таблиц)
@@ -130,6 +135,8 @@
 | Миграция | Содержание |
 |----------|------------|
 | `070_close_work_order_v2` | Расширение: `resource_facts jsonb`, валидация ресурс/группа, INSERT в *_resource_fact |
+| `070a_soft_delete` | Единый `BEFORE DELETE`-триггер `soft_delete()` на все таблицы с `record_status` (§3b audit-spec.md): `DELETE` → `UPDATE status='deprecated'`, физического удаления не происходит. Не входит в исходный состав раздела — добавлен по факту сверки с общим правилом `CLAUDE.md` («DELETE = мягкое удаление»), которое требует, чтобы DELETE-политики не были наглухо заблокированы на доменных таблицах |
+| `070b_close_work_order_task_guard` | Исправление `close_work_order`: обязательная проверка `task_id` в каждом элементе `task_facts` (`RAISE PT400`, если пуст или работа не найдена). До правки отсутствующий/невалидный `task_id` не вызывал ошибку — функция писала `work_order_task_fact` и необратимо закрывала наряд без обновления `task`/`percent_done` |
 | `071_grants` | Единый идемпотентный скрипт всех привилегий |
 | `072_seed` | Навигация, роли, 3 тестовых пользователя, демо-проект с WBS, участки, ресурсы |
 
