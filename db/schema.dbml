@@ -1,0 +1,649 @@
+// PMIS — полная схема данных (Фаза 2)
+// Источник истины перед написанием миграций. Не обязательно валидируется на dbdiagram.io,
+// но поддерживается в консистентном состоянии с db/migrations/*.sql.
+//
+// Общие сквозные правила (см. pmis.wiki/docs/backend-spec.md, audit-spec.md):
+// - uuid PK везде, hash-индекс на каждый identifier (PK и каждый FK)
+// - timestamptz (UTC) для всех дат/времени
+// - ENUM для конечных множеств; таблицы-справочники для расширяемых множеств
+// - Аудит-поля (created_at/created_by/updated_at/updated_by) — на всех доменных таблицах,
+//   кроме screen/menu_item/roles (seed-only, без аудита)
+// - record_status (created/enabled/disabled/deprecated) — на всех доменных таблицах, КРОМЕ:
+//   work_order, work_order_task, task_daily_plan, work_order_task_fact, *_resource_fact
+//   (эти несут аудит, но не record_status)
+
+//////////////////////////////////////////////////////////////////////////
+// ENUM-типы
+//////////////////////////////////////////////////////////////////////////
+
+Enum role_code {
+  admin
+  planner
+  dispatcher
+}
+
+Enum record_status {
+  created
+  enabled
+  disabled
+  deprecated
+}
+
+Enum work_order_status {
+  created
+  open
+  closed
+  canceled
+}
+
+Enum section_kind {
+  area
+  linear
+}
+
+Enum task_type {
+  task
+  milestone
+}
+
+Enum dependency_type {
+  FS
+  SS
+  FF
+  SF
+}
+
+Enum screen_code {
+  gantt
+  works
+  work_orders
+  users
+  resources_personnel
+  resources_equipment
+  resources_materials
+  qty_unit
+}
+
+//////////////////////////////////////////////////////////////////////////
+// 2.2 — Навигация и пользователи
+//////////////////////////////////////////////////////////////////////////
+
+Table screen {
+  id uuid [pk]
+  code screen_code [not null, unique]
+  route text [not null]
+  Indexes {
+    id [type: hash]
+  }
+  Note: "seed-only, без аудита и record_status"
+}
+
+Table menu_item {
+  id uuid [pk]
+  role_code role_code [not null]
+  parent_id uuid [ref: > menu_item.id]
+  screen_id uuid [ref: > screen.id]
+  label text [not null]
+  sort_order integer [not null, default: 0]
+  icon text
+  Indexes {
+    id [type: hash]
+    parent_id [type: hash]
+    screen_id [type: hash]
+  }
+  Note: "seed-only, без аудита и record_status; CHECK depth <= 5"
+}
+
+Table roles {
+  id uuid [pk]
+  code role_code [not null, unique]
+  name text [not null]
+  start_screen_id uuid [not null, ref: > screen.id]
+  Indexes {
+    id [type: hash]
+    start_screen_id [type: hash]
+  }
+  Note: "seed-only, без аудита и record_status"
+}
+
+Table org_unit {
+  id uuid [pk]
+  parent_id uuid [ref: > org_unit.id]
+  name text [not null]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]
+    parent_id [type: hash]
+  }
+}
+
+Table users {
+  id uuid [pk]
+  email text [not null, unique]
+  password text [not null]
+  full_name text [not null]
+  role role_code [not null]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  status record_status [not null, default: 'created']
+  failed_attempts integer [default: 0]
+  locked_until timestamptz
+  token_version integer [not null, default: 0]
+  created_at timestamptz
+  created_by uuid
+  updated_at timestamptz
+  updated_by uuid
+  Indexes {
+    id [type: hash]
+    org_unit_id [type: hash]
+    email [type: btree, unique]
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// 2.4 — Ядро: проекты, работы, единицы
+//////////////////////////////////////////////////////////////////////////
+
+Table qty_unit {
+  id uuid [pk]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  name text [not null]
+  short_name text [not null]
+  is_integer boolean [not null, default: false]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]
+    org_unit_id [type: hash]
+  }
+}
+
+Table project {
+  id uuid [pk]
+  name text [not null]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]
+    org_unit_id [type: hash]
+  }
+}
+
+Table task {
+  id uuid [pk]
+  project_id uuid [not null, ref: > project.id]
+  parent_id uuid [ref: > task.id]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  task_type task_type [not null, default: 'task']
+  name text [not null]
+  start_date timestamptz [not null]
+  end_date timestamptz [not null]
+  duration numeric
+  plan_qty numeric
+  qty_unit_id uuid [ref: > qty_unit.id]
+  percent_done numeric [not null, default: 0]
+  actual_start timestamptz
+  actual_end timestamptz
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]
+    project_id [type: hash]
+    parent_id [type: hash]
+    org_unit_id [type: hash]
+    qty_unit_id [type: hash]
+    start_date [type: btree]
+    end_date [type: btree]
+    actual_start [type: btree]
+    actual_end [type: btree]
+  }
+}
+
+Table task_dependency {
+  id uuid [pk]
+  project_id uuid [not null, ref: > project.id]
+  from_id uuid [not null, ref: > task.id]
+  to_id uuid [not null, ref: > task.id]
+  type dependency_type [not null, default: 'FS']
+  lag numeric [not null, default: 0]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]
+    project_id [type: hash]
+    from_id [type: hash]
+    to_id [type: hash]
+    (from_id, to_id) [unique]
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// 2.4.5 — Дневной план
+//////////////////////////////////////////////////////////////////////////
+
+Table task_daily_plan {
+  id uuid [pk]
+  task_id uuid [not null, ref: > task.id]
+  task_section_id uuid [ref: > task_section.id]
+  date date [not null]
+  plan_qty numeric [not null, default: 0]
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]
+    task_id [type: hash]
+    task_section_id [type: hash]
+    date [type: btree]
+    (task_id, task_section_id, date) [unique]
+  }
+  Note: "без record_status — физическое удаление при отсутствии факта"
+}
+
+//////////////////////////////////////////////////////////////////////////
+// 2.5 — Участки
+//////////////////////////////////////////////////////////////////////////
+
+Table section {
+  id uuid [pk]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  name text [not null]
+  kind section_kind [not null]
+  is_geographic boolean [not null, default: false]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]
+    org_unit_id [type: hash]
+  }
+}
+
+Table section_point {
+  id uuid [pk]
+  section_id uuid [not null, ref: > section.id]
+  seq integer [not null]
+  name text [not null]
+  x numeric [not null]
+  y numeric
+  z numeric
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]
+    section_id [type: hash]
+  }
+}
+
+Table task_section {
+  id uuid [pk]
+  task_id uuid [not null, ref: > task.id]
+  section_id uuid [not null, ref: > section.id]
+  plan_qty numeric [not null]
+  fact_qty numeric [not null, default: 0]
+  percent_done numeric [not null, default: 0]
+  actual_start timestamptz
+  actual_end timestamptz
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]
+    task_id [type: hash]
+    section_id [type: hash]
+    (task_id, section_id) [unique]
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////
+// 2.6 — Наряды
+//////////////////////////////////////////////////////////////////////////
+
+Table work_order {
+  id uuid [pk]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  title text [not null]
+  status work_order_status [not null, default: 'created']
+  closed_at timestamptz
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]
+    org_unit_id [type: hash]
+  }
+  Note: "без record_status — 4 состояния через work_order_status"
+}
+
+Table work_order_task {
+  id uuid [pk]
+  work_order_id uuid [not null, ref: > work_order.id]
+  task_daily_plan_id uuid [ref: > task_daily_plan.id]
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]
+    work_order_id [type: hash]
+    task_daily_plan_id [type: hash]
+    (work_order_id, task_daily_plan_id) [unique]
+  }
+  Note: "без record_status"
+}
+
+Table work_order_task_fact {
+  id uuid [pk]
+  work_order_task_id uuid [not null, ref: > work_order_task.id]
+  fact_qty numeric [not null]
+  actual_start timestamptz
+  actual_end timestamptz
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]
+    work_order_task_id [type: hash]
+  }
+  Note: "без record_status — пишется только close_work_order()"
+}
+
+//////////////////////////////////////////////////////////////////////////
+// 2.7 — Ресурсы: персонал
+//////////////////////////////////////////////////////////////////////////
+
+Table personnel_unit {
+  id uuid [pk]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  name text [not null]
+  short_name text [not null]
+  is_integer boolean [not null, default: false]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  org_unit_id [type: hash] }
+}
+
+Table personnel_resource {
+  id uuid [pk]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  name text [not null]
+  description text
+  unit_id uuid [not null, ref: > personnel_unit.id]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  org_unit_id [type: hash]  unit_id [type: hash] }
+}
+
+Table personnel_group {
+  id uuid [pk]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  name text [not null]
+  unit_id uuid [not null, ref: > personnel_unit.id]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  org_unit_id [type: hash]  unit_id [type: hash] }
+}
+
+Table personnel_group_resource {
+  id uuid [pk]
+  group_id uuid [not null, ref: > personnel_group.id]
+  resource_id uuid [not null, ref: > personnel_resource.id]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  group_id [type: hash]  resource_id [type: hash]  (group_id, resource_id) [unique] }
+}
+
+Table personnel_resource_plan {
+  id uuid [pk]
+  task_daily_plan_id uuid [not null, ref: > task_daily_plan.id]
+  resource_id uuid [ref: > personnel_resource.id]
+  group_id uuid [ref: > personnel_group.id]
+  plan_qty numeric [not null]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]  task_daily_plan_id [type: hash]  resource_id [type: hash]  group_id [type: hash]
+    (task_daily_plan_id, resource_id) [unique]
+    (task_daily_plan_id, group_id) [unique]
+  }
+}
+
+Table personnel_resource_fact {
+  id uuid [pk]
+  work_order_task_fact_id uuid [not null, ref: > work_order_task_fact.id]
+  task_daily_plan_id uuid [ref: > task_daily_plan.id]
+  resource_id uuid [not null, ref: > personnel_resource.id]
+  fact_qty numeric [not null]
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  work_order_task_fact_id [type: hash]  task_daily_plan_id [type: hash]  resource_id [type: hash] }
+  Note: "без record_status"
+}
+
+//////////////////////////////////////////////////////////////////////////
+// 2.7 — Ресурсы: техника (тот же паттерн)
+//////////////////////////////////////////////////////////////////////////
+
+Table equipment_unit {
+  id uuid [pk]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  name text [not null]
+  short_name text [not null]
+  is_integer boolean [not null, default: false]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  org_unit_id [type: hash] }
+}
+
+Table equipment_resource {
+  id uuid [pk]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  name text [not null]
+  description text
+  unit_id uuid [not null, ref: > equipment_unit.id]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  org_unit_id [type: hash]  unit_id [type: hash] }
+}
+
+Table equipment_group {
+  id uuid [pk]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  name text [not null]
+  unit_id uuid [not null, ref: > equipment_unit.id]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  org_unit_id [type: hash]  unit_id [type: hash] }
+}
+
+Table equipment_group_resource {
+  id uuid [pk]
+  group_id uuid [not null, ref: > equipment_group.id]
+  resource_id uuid [not null, ref: > equipment_resource.id]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  group_id [type: hash]  resource_id [type: hash]  (group_id, resource_id) [unique] }
+}
+
+Table equipment_resource_plan {
+  id uuid [pk]
+  task_daily_plan_id uuid [not null, ref: > task_daily_plan.id]
+  resource_id uuid [ref: > equipment_resource.id]
+  group_id uuid [ref: > equipment_group.id]
+  plan_qty numeric [not null]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]  task_daily_plan_id [type: hash]  resource_id [type: hash]  group_id [type: hash]
+    (task_daily_plan_id, resource_id) [unique]
+    (task_daily_plan_id, group_id) [unique]
+  }
+}
+
+Table equipment_resource_fact {
+  id uuid [pk]
+  work_order_task_fact_id uuid [not null, ref: > work_order_task_fact.id]
+  task_daily_plan_id uuid [ref: > task_daily_plan.id]
+  resource_id uuid [not null, ref: > equipment_resource.id]
+  fact_qty numeric [not null]
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  work_order_task_fact_id [type: hash]  task_daily_plan_id [type: hash]  resource_id [type: hash] }
+  Note: "без record_status"
+}
+
+//////////////////////////////////////////////////////////////////////////
+// 2.7 — Ресурсы: материалы (тот же паттерн)
+//////////////////////////////////////////////////////////////////////////
+
+Table materials_unit {
+  id uuid [pk]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  name text [not null]
+  short_name text [not null]
+  is_integer boolean [not null, default: false]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  org_unit_id [type: hash] }
+}
+
+Table materials_resource {
+  id uuid [pk]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  name text [not null]
+  description text
+  unit_id uuid [not null, ref: > materials_unit.id]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  org_unit_id [type: hash]  unit_id [type: hash] }
+}
+
+Table materials_group {
+  id uuid [pk]
+  org_unit_id uuid [not null, ref: > org_unit.id]
+  name text [not null]
+  unit_id uuid [not null, ref: > materials_unit.id]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  org_unit_id [type: hash]  unit_id [type: hash] }
+}
+
+Table materials_group_resource {
+  id uuid [pk]
+  group_id uuid [not null, ref: > materials_group.id]
+  resource_id uuid [not null, ref: > materials_resource.id]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  group_id [type: hash]  resource_id [type: hash]  (group_id, resource_id) [unique] }
+}
+
+Table materials_resource_plan {
+  id uuid [pk]
+  task_daily_plan_id uuid [not null, ref: > task_daily_plan.id]
+  resource_id uuid [ref: > materials_resource.id]
+  group_id uuid [ref: > materials_group.id]
+  plan_qty numeric [not null]
+  status record_status [not null, default: 'created']
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes {
+    id [type: hash]  task_daily_plan_id [type: hash]  resource_id [type: hash]  group_id [type: hash]
+    (task_daily_plan_id, resource_id) [unique]
+    (task_daily_plan_id, group_id) [unique]
+  }
+}
+
+Table materials_resource_fact {
+  id uuid [pk]
+  work_order_task_fact_id uuid [not null, ref: > work_order_task_fact.id]
+  task_daily_plan_id uuid [ref: > task_daily_plan.id]
+  resource_id uuid [not null, ref: > materials_resource.id]
+  fact_qty numeric [not null]
+  created_at timestamptz
+  created_by uuid [ref: > users.id]
+  updated_at timestamptz
+  updated_by uuid [ref: > users.id]
+  Indexes { id [type: hash]  work_order_task_fact_id [type: hash]  task_daily_plan_id [type: hash]  resource_id [type: hash] }
+  Note: "без record_status"
+}
+
+// Итого: 31 таблица (10 ядерных доменных: org_unit, users, qty_unit, project, task,
+// task_dependency, task_daily_plan, section, section_point, task_section, work_order,
+// work_order_task, work_order_task_fact — фактически 13, см. ниже) + 18 ресурсных (×3 вида
+// по 6 таблиц) + 3 служебные (screen, menu_item, roles) = см. полный список в комментарии
+// выше backend-spec.md §"Готово когда" 2.0 (~31 таблица, точное число не критично —
+// критично покрытие всех доменов).

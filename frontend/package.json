@@ -1,0 +1,29 @@
+{
+  "name": "pmis-frontend",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "vue": "^3.5.0",
+    "vue-router": "^5.0.0",
+    "pinia": "^3.0.0",
+    "@supabase/postgrest-js": "^2.0.0",
+    "naive-ui": "^2.41.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.0",
+    "vite": "^8.0.0",
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "eslint": "^10.0.0",
+    "eslint-plugin-vue": "^10.0.0",
+    "@eslint/js": "^10.0.0",
+    "globals": "^17.0.0"
+  }
+}

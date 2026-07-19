@@ -1,0 +1,50 @@
+services:
+  db:
+    build: ./db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgrest:
+    image: postgrest/postgrest:v14.15
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Подключение под служебной ролью authenticator (003_roles.sql), а не под суперпользователем
+      # POSTGRES_USER — authenticator не имеет собственных прав и на каждый запрос переключается
+      # (SET ROLE) на anon либо на прикладную роль (admin/planner/dispatcher) согласно claim "role"
+      # выданного JWT (PostgREST user impersonation, см. docs.postgrest.org/en/v14/references/auth.html).
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      PGRST_DB_SCHEMA: public
+      PGRST_DB_ANON_ROLE: anon
+      # db-pre-request: проверка token_version из JWT-claim против users.token_version в БД —
+      # инвалидирует токены, выпущенные до logout()/change_password() (018_logout.sql).
+      PGRST_DB_PRE_REQUEST: public.check_token_version
+      PGRST_JWT_SECRET: ${PGRST_JWT_SECRET}
+    ports:
+      - "${POSTGREST_PORT:-3000}:3000"
+
+  swagger-ui:
+    image: swaggerapi/swagger-ui
+    depends_on:
+      - postgrest
+    environment:
+      # API_URL читается JS в браузере клиента, поэтому указывает на localhost,
+      # а не на внутреннее docker-network имя postgrest.
+      API_URL: http://localhost:${POSTGREST_PORT:-3000}/
+    ports:
+      - "${SWAGGER_PORT:-8080}:8080"
+
+volumes:
+  pgdata:
