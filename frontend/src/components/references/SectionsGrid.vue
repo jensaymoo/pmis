@@ -10,13 +10,13 @@
 // скрыта (sections-screen.md §4.6, resources-pattern.md §3.2).
 //
 import { h, ref, computed } from 'vue'
-import { NButton, NSpace, NTag } from 'naive-ui'
+import { NButton, NSpace, NTag, NInput, NRadioGroup, NRadio } from 'naive-ui'
 import { useAuthStore } from '../../stores/auth'
 import { useReferenceList } from '../../adapters/naivePostgrest'
-import { useRecordLifecycle } from '../../composables/useRecordLifecycle'
 import { getClient } from '../../lib/postgrest'
 import StatusTag from './StatusTag.vue'
 import SectionFormModal from './SectionFormModal.vue'
+import GridFilterHeader from './GridFilterHeader.vue'
 
 const props = defineProps({
   /** Модалка открыта */
@@ -28,7 +28,6 @@ const props = defineProps({
 const emit = defineEmits(['update:show', 'pick'])
 
 const auth = useAuthStore()
-const isAdmin = computed(() => auth.user?.role === 'admin')
 const isDispatcher = computed(() => auth.user?.role === 'dispatcher')
 
 const {
@@ -46,8 +45,6 @@ const {
   defaultStatuses: isDispatcher.value ? ['enabled'] : ['created', 'enabled', 'disabled'],
   order: 'name',
 })
-
-const lifecycle = useRecordLifecycle({ getClient, table: 'section', entityLabel: 'участок' })
 
 const showForm = ref(false)
 const editingRecord = ref(null)
@@ -100,12 +97,72 @@ function onSaved() {
   reload()
 }
 
+/**
+ * Заголовок колонки «Наименование» с попапером текстового поиска.
+ * Debounce перед отправкой значения в search берёт на себя GridFilterHeader.
+ * @returns {import('vue').VNode}
+ */
+function nameHeader() {
+  return h(
+    GridFilterHeader,
+    {
+      label: 'Наименование',
+      modelValue: search.value,
+      apply: (v) => (search.value = v),
+      active: !!search.value.trim(),
+    },
+    {
+      default: ({ value, update }) =>
+        h(NInput, {
+          value: value.value,
+          clearable: true,
+          size: 'small',
+          placeholder: 'Поиск...',
+          style: 'width: 224px',
+          'onUpdate:value': update,
+        }),
+    },
+  )
+}
+
+/**
+ * Заголовок колонки «Статус» с попапером выбора статуса.
+ * @returns {import('vue').VNode}
+ */
+function statusHeader() {
+  return h(
+    GridFilterHeader,
+    {
+      label: 'Статус',
+      modelValue: statusFilterModel.value,
+      apply: (v) => (statusFilterModel.value = v),
+      active: statusFilterModel.value.includes('deprecated'),
+    },
+    {
+      default: ({ value, update }) =>
+        h(
+          NRadioGroup,
+          { value: value.value, 'onUpdate:value': update },
+          () =>
+            h(
+              NSpace,
+              { vertical: true, size: 4 },
+              () =>
+                statusOptions.map((opt) =>
+                  h(NRadio, { value: opt.value }, () => opt.label),
+                ),
+            ),
+        ),
+    },
+  )
+}
+
 const KIND_LABELS = { linear: 'Протяжённый', area: 'Площадной' }
 
 const columns = computed(() => {
   const cols = [
     {
-      title: 'Наименование',
+      title: nameHeader,
       key: 'name',
       render: (row) =>
         h(
@@ -145,41 +202,12 @@ const columns = computed(() => {
         ),
     },
     {
-      title: 'Статус',
+      title: statusHeader,
       key: 'status',
       width: 110,
       render: (row) => h(StatusTag, { status: row.status }),
     },
   ]
-
-  if (!props.pickMode && !isDispatcher.value) {
-    cols.push({
-      title: 'Действия',
-      key: 'actions',
-      width: 240,
-      render: (row) => {
-        if (!isOwnRecord(row)) return null
-        const actions = lifecycle.availableActions(row.status, isAdmin.value)
-        return h(NSpace, { size: 'small' }, () => [
-          actions.includes('activate')
-            ? h(NButton, { size: 'tiny', onClick: () => lifecycle.activate(row).then((ok) => ok && reload()) }, () => 'Активировать')
-            : null,
-          actions.includes('deactivate')
-            ? h(NButton, { size: 'tiny', onClick: () => lifecycle.deactivate(row).then((ok) => ok && reload()) }, () => 'Деактивировать')
-            : null,
-          row.status !== 'deprecated'
-            ? h(NButton, { size: 'tiny', onClick: () => openEdit(row) }, () => 'Редактировать')
-            : null,
-          actions.includes('delete')
-            ? h(NButton, { size: 'tiny', type: 'error', onClick: () => lifecycle.softDelete(row).then((ok) => ok && reload()) }, () => 'Удалить')
-            : null,
-          actions.includes('restore')
-            ? h(NButton, { size: 'tiny', onClick: () => lifecycle.restore(row).then((ok) => ok && reload()) }, () => 'Восстановить')
-            : null,
-        ])
-      },
-    })
-  }
 
   return cols
 })
@@ -196,21 +224,7 @@ const columns = computed(() => {
     @update:show="(v) => emit('update:show', v)"
   >
     <div class="flex flex-col h-full">
-      <div class="flex items-center justify-between gap-4 mb-3">
-        <div class="flex items-center gap-3 flex-1">
-          <n-input
-            v-model:value="search"
-            placeholder="Поиск по наименованию"
-            clearable
-            class="max-w-xs"
-          />
-          <n-select
-            v-if="!isDispatcher"
-            v-model:value="statusFilterModel"
-            :options="statusOptions"
-            class="max-w-xs"
-          />
-        </div>
+      <div class="flex items-center justify-end mb-3">
         <n-button
           v-if="!isDispatcher"
           type="primary"

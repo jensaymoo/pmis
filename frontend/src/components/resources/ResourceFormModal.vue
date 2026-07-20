@@ -7,9 +7,10 @@
 // См. resources-pattern.md §2.4, §6.2, resources-personnel.md §4.2, §4.4.
 //
 import { computed, reactive, ref, watch } from 'vue'
-import { useMessage, useNotification } from 'naive-ui'
+import { useMessage, useNotification, NSpace, NButton } from 'naive-ui'
 import { useAuthStore } from '../../stores/auth'
 import { getClient } from '../../lib/postgrest'
+import { useRecordLifecycle } from '../../composables/useRecordLifecycle'
 import UnitsTableModal from './UnitsTableModal.vue'
 import GroupsTableModal from './GroupsTableModal.vue'
 
@@ -37,7 +38,18 @@ const groupTable = computed(() => `${props.kind}_group`)
 const linkTable = computed(() => `${props.kind}_group_resource`)
 const unitTable = computed(() => `${props.kind}_unit`)
 
+const isAdmin = computed(() => auth.user?.role === 'admin')
+
+const lifecycle = useRecordLifecycle({ getClient, table: resourceTable.value, entityLabel: 'ресурс' })
+
 const isEditing = computed(() => !!props.record)
+
+/** Локальная копия записи для отражения смены статуса без мутации пропса. */
+const editing = ref(null)
+
+const actions = computed(() =>
+  editing.value ? lifecycle.availableActions(editing.value.status, isAdmin.value) : [],
+)
 
 /** Запись редактируема, только если принадлежит собственной зоне пользователя (pattern.md §3.2). */
 const isOwnZone = computed(() => !props.record || props.record.org_unit_id === auth.user?.org_unit_id)
@@ -131,6 +143,7 @@ watch(
   () => props.show,
   async (visible) => {
     if (!visible) return
+    editing.value = props.record ? { ...props.record } : null
     resetForm()
     await loadUnitOptions()
     await loadMemberGroups()
@@ -176,6 +189,46 @@ async function onSubmit() {
     emit('saved')
   } finally {
     loading.value = false
+  }
+}
+
+/** Обновляет статус локальной копии записи после lifecycle-действия. */
+function patchStatus(status) {
+  if (editing.value) {
+    editing.value.status = status
+  }
+}
+
+/** @param {() => Promise<boolean>} action */
+async function runLifecycle(action) {
+  const ok = await action()
+  if (ok) {
+    emit('saved')
+  }
+  return ok
+}
+
+async function doActivate() {
+  if (await runLifecycle(() => lifecycle.activate(editing.value))) {
+    patchStatus('enabled')
+  }
+}
+
+async function doDeactivate() {
+  if (await runLifecycle(() => lifecycle.deactivate(editing.value))) {
+    patchStatus('disabled')
+  }
+}
+
+async function doRestore() {
+  if (await runLifecycle(() => lifecycle.restore(editing.value))) {
+    patchStatus('disabled')
+  }
+}
+
+async function doDelete() {
+  if (await runLifecycle(() => lifecycle.softDelete(editing.value))) {
+    emit('update:show', false)
   }
 }
 
@@ -232,6 +285,46 @@ watch(groupsModalVisible, (visible) => {
     @update:show="(value) => emit('update:show', value)"
     @close="onClose"
   >
+    <template
+      v-if="isEditing && !formReadonly"
+      #header-extra
+    >
+      <n-space
+        :wrap="false"
+        :size="4"
+      >
+        <n-button
+          v-if="actions.includes('activate')"
+          size="small"
+          @click="doActivate"
+        >
+          Активировать
+        </n-button>
+        <n-button
+          v-if="actions.includes('deactivate')"
+          size="small"
+          @click="doDeactivate"
+        >
+          Деактивировать
+        </n-button>
+        <n-button
+          v-if="actions.includes('restore')"
+          size="small"
+          @click="doRestore"
+        >
+          Восстановить
+        </n-button>
+        <n-button
+          v-if="actions.includes('delete')"
+          size="small"
+          type="error"
+          ghost
+          @click="doDelete"
+        >
+          Удалить
+        </n-button>
+      </n-space>
+    </template>
     <n-form
       ref="formRef"
       :model="model"

@@ -1,19 +1,21 @@
 <script setup>
 //
 // Грид пользователей (users) — access-and-roles-users.md §5, resources-pattern.md.
-// Главная область экрана «Пользователи»: поиск, фильтр по роли/статусу,
-// создание/редактирование учётной записи, действия жизненного цикла.
+// Главная область экрана «Пользователи»: поиск, фильтр по роли/статусу
+// вынесены в попаперы заголовков колонок, создание/редактирование учётной
+// записи, действия жизненного цикла — в модалке (#header-extra).
 //
 // Анти-эскалация на клиенте (access-and-roles-users.md §5.3) — только UX-подсказка,
 // сервер (RLS users_update/users_delete) перепроверяет всё самостоятельно (403).
 //
-import { ref, computed, h } from 'vue'
-import { NButton, NTag } from 'naive-ui'
+import { ref, computed, h, watch } from 'vue'
+import { NButton, NTag, NInput, NSelect, NSpace } from 'naive-ui'
 import { getClient } from '../../lib/postgrest'
 import { useAuthStore } from '../../stores/auth'
 import { useReferenceList } from '../../adapters/naivePostgrest'
 import { useRecordLifecycle } from '../../composables/useRecordLifecycle'
 import StatusTag from '../references/StatusTag.vue'
+import GridFilterHeader from '../references/GridFilterHeader.vue'
 import OrgUnitTree from './OrgUnitTree.vue'
 
 const auth = useAuthStore()
@@ -56,7 +58,6 @@ async function loadRoles() {
 loadRoles()
 
 const roleOptions = computed(() => roles.value.map((r) => ({ label: r.name, value: r.code })))
-const roleFilterOptions = computed(() => [{ label: 'Все роли', value: null }, ...roleOptions.value])
 
 const statusOptions = [
   { label: 'Создана', value: 'created' },
@@ -204,26 +205,161 @@ function onOrgPicked({ id, name }) {
 // --- управление организациями (режим manage, из тулбара экрана) ---
 // Отдельная точка входа находится на UsersPage.vue — этот грид не дублирует кнопку.
 
-// --- действия жизненного цикла ---
+// --- действия жизненного цикла перенесены в модалку (#header-extra) ---
 
-async function onActivate(record) {
-  if (await lifecycle.activate(record)) await reload()
+const isAdmin = computed(() => auth.user?.role === 'admin')
+
+/** Локальная копия записи для отражения смены статуса без мутации пропса. */
+const editing = ref(null)
+
+const actions = computed(() => {
+  if (!editing.value) return []
+  // Анти-эскалация на своей записи: жизненные действия недоступны (§5.3).
+  if (editing.value.id === auth.user?.id) return []
+  return lifecycle.availableActions(editing.value.status, isAdmin.value)
+})
+
+/** Обновляет статус локальной копии записи после lifecycle-действия. */
+function patchStatus(status) {
+  if (editing.value) {
+    editing.value.status = status
+  }
 }
-async function onDeactivate(record) {
-  if (await lifecycle.deactivate(record)) await reload()
+
+/** @param {() => Promise<boolean>} action */
+async function runLifecycle(action) {
+  const ok = await action()
+  if (ok) {
+    await reload()
+  }
+  return ok
 }
-async function onSoftDelete(record) {
-  if (await lifecycle.softDelete(record)) await reload()
+
+async function doActivate() {
+  if (await runLifecycle(() => lifecycle.activate(editing.value))) {
+    patchStatus('enabled')
+  }
 }
-async function onRestore(record) {
-  if (await lifecycle.restore(record)) await reload()
+async function doDeactivate() {
+  if (await runLifecycle(() => lifecycle.deactivate(editing.value))) {
+    patchStatus('disabled')
+  }
+}
+async function doRestore() {
+  if (await runLifecycle(() => lifecycle.restore(editing.value))) {
+    patchStatus('disabled')
+  }
+}
+async function doDelete() {
+  if (await runLifecycle(() => lifecycle.softDelete(editing.value))) {
+    closeForm()
+  }
+}
+
+// Синхронизация локальной копии записи при открытии модалки.
+watch(
+  () => formShow.value,
+  (visible) => {
+    if (visible && formMode.value === 'edit' && editingRecord.value) {
+      editing.value = { ...editingRecord.value }
+    } else {
+      editing.value = null
+    }
+  },
+)
+
+/**
+ * Заголовок колонки «ФИО» с попапером текстового поиска.
+ * @returns {import('vue').VNode}
+ */
+function nameHeader() {
+  return h(
+    GridFilterHeader,
+    {
+      label: 'ФИО',
+      modelValue: search.value,
+      apply: (v) => (search.value = v),
+      active: !!search.value.trim(),
+    },
+    {
+      default: ({ value, update }) =>
+        h(NInput, {
+          value: value.value,
+          clearable: true,
+          size: 'small',
+          placeholder: 'Поиск...',
+          style: 'width: 224px',
+          'onUpdate:value': update,
+        }),
+    },
+  )
+}
+
+/**
+ * Заголовок колонки «Роль» с попапером выбора роли (single, clearable).
+ * @returns {import('vue').VNode}
+ */
+function roleHeader() {
+  return h(
+    GridFilterHeader,
+    {
+      label: 'Роль',
+      modelValue: roleFilter.value ?? '',
+      apply: (v) => (roleFilter.value = v || null),
+      active: !!roleFilter.value,
+    },
+    {
+      default: ({ value, update }) =>
+        h(NSelect, {
+          value: value.value || null,
+          options: roleOptions.value,
+          placeholder: 'Роль',
+          clearable: true,
+          size: 'small',
+          style: 'width: 200px',
+          'onUpdate:value': update,
+        }),
+    },
+  )
+}
+
+/**
+ * Заголовок колонки «Статус» с попапером множественного выбора статусов.
+ * @returns {import('vue').VNode}
+ */
+function statusHeader() {
+  return h(
+    GridFilterHeader,
+    {
+      label: 'Статус',
+      modelValue: statusFilter.value.join(','),
+      apply: () => {},
+      active: statusFilter.value.includes('deprecated'),
+    },
+    {
+      default: ({ value, update }) =>
+        h(NSelect, {
+          value: value.value ? value.value.split(',') : [],
+          options: statusOptions,
+          placeholder: 'Статус',
+          multiple: true,
+          clearable: true,
+          size: 'small',
+          style: 'width: 220px',
+          'onUpdate:value': (arr) => {
+            statusFilter.value = arr
+            update(arr.join(','))
+          },
+        }),
+    },
+  )
 }
 
 const columns = computed(() => [
-  { title: 'ФИО', key: 'full_name' },
+  { title: nameHeader, key: 'full_name' },
   { title: 'Email', key: 'email' },
   {
-    title: 'Роль',
+    title: roleHeader,
     key: 'role',
     render: (row) => h(NTag, { bordered: false, size: 'small' }, { default: () => roleLabel(row.role) }),
   },
@@ -233,95 +369,18 @@ const columns = computed(() => [
     render: (row) => row.org_unit?.name ?? '—',
   },
   {
-    title: 'Статус',
+    title: statusHeader,
     key: 'status',
     render: (row) => h(StatusTag, { status: row.status }),
-  },
-  {
-    title: 'Действия',
-    key: 'actions',
-    render: (row) => {
-      const isSelf = row.id === auth.user?.id
-      const actions = lifecycle.availableActions(row.status, true)
-      const buttons = [
-        h(
-          NButton,
-          { size: 'small', quaternary: true, onClick: () => openEditForm(row) },
-          { default: () => 'Редактировать' },
-        ),
-      ]
-      // На своей строке видно только «Редактировать» (§5.3).
-      if (!isSelf) {
-        if (actions.includes('activate')) {
-          buttons.push(
-            h(
-              NButton,
-              { size: 'small', quaternary: true, onClick: () => onActivate(row) },
-              { default: () => 'Активировать' },
-            ),
-          )
-        }
-        if (actions.includes('deactivate')) {
-          buttons.push(
-            h(
-              NButton,
-              { size: 'small', quaternary: true, onClick: () => onDeactivate(row) },
-              { default: () => 'Деактивировать' },
-            ),
-          )
-        }
-        if (actions.includes('delete')) {
-          buttons.push(
-            h(
-              NButton,
-              { size: 'small', quaternary: true, onClick: () => onSoftDelete(row) },
-              { default: () => 'Удалить' },
-            ),
-          )
-        }
-        if (actions.includes('restore')) {
-          buttons.push(
-            h(
-              NButton,
-              { size: 'small', quaternary: true, onClick: () => onRestore(row) },
-              { default: () => 'Восстановить' },
-            ),
-          )
-        }
-      }
-      return h('div', { class: 'flex flex-wrap gap-1' }, buttons)
-    },
   },
 ])
 </script>
 
 <template>
   <div class="flex h-full flex-col gap-3">
-    <div class="flex flex-wrap items-center gap-2">
-      <n-input
-        v-model:value="search"
-        placeholder="Поиск по ФИО"
-        clearable
-        class="max-w-xs"
-      />
-      <n-select
-        v-model:value="roleFilter"
-        :options="roleFilterOptions"
-        placeholder="Роль"
-        clearable
-        class="max-w-xs"
-      />
-      <n-select
-        v-model:value="statusFilter"
-        :options="statusOptions"
-        placeholder="Статус"
-        multiple
-        clearable
-        class="max-w-sm"
-      />
+    <div class="flex items-center justify-end mb-3">
       <n-button
         type="primary"
-        class="ml-auto"
         @click="openCreateForm"
       >
         Создать
@@ -342,6 +401,10 @@ const columns = computed(() => [
         :pagination="pagination"
         :bordered="false"
         remote
+        :row-props="(row) => ({
+          class: 'cursor-pointer',
+          onDblclick: () => openEditForm(row),
+        })"
       />
     </n-spin>
 
@@ -352,6 +415,46 @@ const columns = computed(() => [
       class="w-full max-w-md"
       @update:show="(v) => !v && closeForm()"
     >
+      <template
+        v-if="formMode === 'edit'"
+        #header-extra
+      >
+        <n-space
+          :wrap="false"
+          :size="4"
+        >
+          <n-button
+            v-if="actions.includes('activate')"
+            size="small"
+            @click="doActivate"
+          >
+            Активировать
+          </n-button>
+          <n-button
+            v-if="actions.includes('deactivate')"
+            size="small"
+            @click="doDeactivate"
+          >
+            Деактивировать
+          </n-button>
+          <n-button
+            v-if="actions.includes('restore')"
+            size="small"
+            @click="doRestore"
+          >
+            Восстановить
+          </n-button>
+          <n-button
+            v-if="actions.includes('delete')"
+            size="small"
+            type="error"
+            ghost
+            @click="doDelete"
+          >
+            Удалить
+          </n-button>
+        </n-space>
+      </template>
       <n-form
         ref="formRef"
         :model="formModel"

@@ -70,6 +70,14 @@ function flush() {
     props.apply(buffer.value)
   }
 }
+
+// Запись из слота попадает в буфер; отправка наружу — с debounce.
+function update(v) {
+  buffer.value = v
+}
+
+// Слот получает ref на текущее значение буфера и функцию записи в него.
+const slotProps = { value: buffer, update }
 </script>
 
 <template>

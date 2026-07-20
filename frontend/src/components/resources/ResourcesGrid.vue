@@ -1,17 +1,19 @@
 <script setup>
 //
 // Грид ресурсов вида (персонал/техника/материалы) — переиспользуемый через
-// prop kind. Тулбар: поиск, фильтр статуса, «Создать», «Единицы измерения»,
-// «Группы» (скрыты для dispatcher, кроме поиска/фильтра). Колонки —
+// prop kind. Тулбар: «Создать», «Единицы измерения», «Группы» (скрыты для
+// dispatcher). Фильтры (поиск по имени и по статусу) вынесены в попаперы в
+// заголовках колонок (resources-pattern.md §7.1). Действия жизненного цикла
+// перенесены в модалку редактирования (слот #header-extra). Колонки —
 // resources-personnel.md §4.4 (общий состав для всех трёх видов).
 //
 import { computed, h, ref, watch } from 'vue'
-import { NTag, NTooltip, NEllipsis } from 'naive-ui'
+import { NTag, NTooltip, NEllipsis, NInput, NSelect } from 'naive-ui'
 import { useAuthStore } from '../../stores/auth'
 import { getClient } from '../../lib/postgrest'
 import { useReferenceList } from '../../adapters/naivePostgrest'
-import { useRecordLifecycle } from '../../composables/useRecordLifecycle'
 import StatusTag from '../references/StatusTag.vue'
+import GridFilterHeader from '../references/GridFilterHeader.vue'
 import ResourceFormModal from './ResourceFormModal.vue'
 import UnitsTableModal from './UnitsTableModal.vue'
 import GroupsTableModal from './GroupsTableModal.vue'
@@ -28,7 +30,6 @@ const groupTable = computed(() => `${props.kind}_group`)
 const linkTable = computed(() => `${props.kind}_group_resource`)
 const unitTable = computed(() => `${props.kind}_unit`)
 
-const isAdmin = computed(() => auth.user?.role === 'admin')
 const isDispatcher = computed(() => auth.user?.role === 'dispatcher')
 
 const list = useReferenceList({
@@ -39,11 +40,7 @@ const list = useReferenceList({
   defaultStatuses: isDispatcher.value ? ['enabled'] : ['created', 'enabled', 'disabled'],
 })
 
-const lifecycle = useRecordLifecycle({
-  getClient,
-  table: resourceTable.value,
-  entityLabel: 'ресурс',
-})
+const selectedRow = ref(null)
 
 // --- справочные данные для колонок (единица измерения, группы) ---
 
@@ -122,29 +119,18 @@ function openEdit(row) {
   formVisible.value = true
 }
 
+/** @param {object} row */
+function onRowClick(row) {
+  selectedRow.value = row
+}
+
+/** @param {object} row */
+function onRowDblClick(row) {
+  openEdit(row)
+}
+
 function onSaved() {
   list.reload()
-}
-
-// --- действия жизненного цикла (колонка «Действия») ---
-
-/** @param {object} row @param {'activate'|'deactivate'|'delete'|'restore'} action */
-async function runAction(row, action) {
-  const handlers = {
-    activate: lifecycle.activate,
-    deactivate: lifecycle.deactivate,
-    delete: lifecycle.softDelete,
-    restore: lifecycle.restore,
-  }
-  const ok = await handlers[action](row)
-  if (ok) await list.reload()
-}
-
-const ACTION_LABELS = {
-  activate: 'Активировать',
-  deactivate: 'Деактивировать',
-  delete: 'Удалить',
-  restore: 'Восстановить',
 }
 
 /** Запись редактируема, только если принадлежит собственной зоне (pattern.md §3.2). */
@@ -152,11 +138,80 @@ function isOwnZone(row) {
   return row.org_unit_id === auth.user?.org_unit_id
 }
 
+// --- заголовки колонок с попаперами-фильтрами ---
+
+const statusOptions = [
+  { label: 'Создана', value: 'created' },
+  { label: 'Активна', value: 'enabled' },
+  { label: 'Отключена', value: 'disabled' },
+  { label: 'Удалена', value: 'deprecated' },
+]
+
+/**
+ * Заголовок колонки «Наименование» с попапером текстового поиска.
+ * Debounce перед отправкой значения в search берёт на себя GridFilterHeader.
+ * @returns {import('vue').VNode}
+ */
+function nameHeader() {
+  return h(
+    GridFilterHeader,
+    {
+      label: 'Наименование',
+      modelValue: list.search.value,
+      apply: (v) => (list.search.value = v),
+      active: !!list.search.value.trim(),
+    },
+    {
+      default: ({ value, update }) =>
+        h(NInput, {
+          value: value.value,
+          clearable: true,
+          size: 'small',
+          placeholder: 'Поиск...',
+          style: 'width: 224px',
+          'onUpdate:value': update,
+        }),
+    },
+  )
+}
+
+/**
+ * Заголовок колонки «Статус» с попапером множественного выбора статусов.
+ * @returns {import('vue').VNode}
+ */
+function statusHeader() {
+  return h(
+    GridFilterHeader,
+    {
+      label: 'Статус',
+      modelValue: list.statusFilter.value.join(','),
+      apply: (v) => (list.statusFilter.value = v.split(',')),
+      active: list.statusFilter.value.includes('deprecated'),
+    },
+    {
+      default: ({ value, update }) =>
+        h(
+          NSelect,
+          {
+            value: value.value,
+            multiple: true,
+            clearable: true,
+            size: 'small',
+            placeholder: 'Статус',
+            style: 'width: 220px',
+            options: statusOptions,
+            'onUpdate:value': update,
+          },
+        ),
+    },
+  )
+}
+
 // --- колонки грида ---
 
 const columns = computed(() => {
   const cols = [
-    { title: 'Наименование', key: 'name', minWidth: 160 },
+    { title: nameHeader, key: 'name', minWidth: 160 },
     {
       title: 'Описание',
       key: 'description',
@@ -209,51 +264,12 @@ const columns = computed(() => {
         ),
     },
     {
-      title: 'Статус',
+      title: statusHeader,
       key: 'status',
       width: 110,
       render: (row) => h(StatusTag, { status: row.status }),
     },
   ]
-
-  if (!isDispatcher.value) {
-    cols.push({
-      title: 'Действия',
-      key: 'actions',
-      width: 220,
-      render: (row) => {
-        if (!isOwnZone(row)) {
-          return h(
-            'button',
-            {
-              class: 'text-xs text-blue-600 hover:underline',
-              onClick: () => openEdit(row),
-            },
-            'Просмотр',
-          )
-        }
-        const actions = lifecycle.availableActions(row.status, isAdmin.value)
-        const buttons = [
-          h(
-            'button',
-            { class: 'text-xs text-blue-600 hover:underline mr-2', onClick: () => openEdit(row) },
-            'Изменить',
-          ),
-          ...actions.map((action) =>
-            h(
-              'button',
-              {
-                class: 'text-xs text-blue-600 hover:underline mr-2',
-                onClick: () => runAction(row, action),
-              },
-              ACTION_LABELS[action],
-            ),
-          ),
-        ]
-        return h('div', { class: 'flex flex-wrap' }, buttons)
-      },
-    })
-  }
 
   return cols
 })
@@ -284,25 +300,6 @@ loadUnits()
 <template>
   <div class="flex flex-col h-full">
     <div class="flex items-center gap-3 mb-3 flex-wrap">
-      <n-input
-        v-model:value="list.search.value"
-        placeholder="Поиск по наименованию"
-        clearable
-        class="max-w-xs"
-      />
-      <n-select
-        v-if="!isDispatcher"
-        v-model:value="list.statusFilter.value"
-        multiple
-        placeholder="Статус"
-        class="max-w-xs"
-        :options="[
-          { label: 'Создана', value: 'created' },
-          { label: 'Активна', value: 'enabled' },
-          { label: 'Отключена', value: 'disabled' },
-          { label: 'Удалена', value: 'deprecated' },
-        ]"
-      />
       <div class="flex-1" />
       <template v-if="!isDispatcher">
         <n-button @click="unitsModalVisible = true">
@@ -327,6 +324,11 @@ loadUnits()
       :pagination="list.pagination.value"
       :loading="list.loading.value"
       :row-key="(row) => row.id"
+      :row-props="(row) => ({
+        class: selectedRow?.id === row.id ? 'bg-blue-50 cursor-pointer' : 'cursor-pointer',
+        onClick: () => onRowClick(row),
+        onDblclick: () => onRowDblClick(row),
+      })"
       :bordered="false"
       flex-height
       class="flex-1"

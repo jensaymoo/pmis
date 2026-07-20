@@ -9,8 +9,10 @@
 // POST/PATCH/DELETE /section_point по разнице, sections-api.md).
 //
 import { ref, computed, watch, nextTick } from 'vue'
-import { useNotification } from 'naive-ui'
+import { useNotification, NSpace, NButton } from 'naive-ui'
 import { getClient } from '../../lib/postgrest'
+import { useAuthStore } from '../../stores/auth'
+import { useRecordLifecycle } from '../../composables/useRecordLifecycle'
 import SectionMapPreview from './SectionMapPreview.vue'
 
 const props = defineProps({
@@ -21,12 +23,24 @@ const props = defineProps({
 
 const emit = defineEmits(['update:show', 'saved'])
 
+const auth = useAuthStore()
+const isAdmin = computed(() => auth.user?.role === 'admin')
+
 const notification = useNotification()
 const formRef = ref(null)
 const nameInputRef = ref(null)
 const loading = ref(false)
 
 const isEdit = computed(() => !!props.record)
+
+const lifecycle = useRecordLifecycle({ getClient, table: 'section', entityLabel: 'участок' })
+
+/** Локальная копия записи для отражения смены статуса без мутации пропса. */
+const editing = ref(null)
+
+const actions = computed(() =>
+  editing.value ? lifecycle.availableActions(editing.value.status, isAdmin.value) : [],
+)
 
 const model = ref({
   name: '',
@@ -60,6 +74,7 @@ watch(
   () => props.show,
   async (visible) => {
     if (!visible) return
+    editing.value = props.record ? { ...props.record } : null
     pointsErrorMessage.value = ''
     formRef.value?.restoreValidation()
 
@@ -318,6 +333,46 @@ async function onSubmit() {
 function onClose() {
   emit('update:show', false)
 }
+
+/** Обновляет статус локальной копии записи после lifecycle-действия. */
+function patchStatus(status) {
+  if (editing.value) {
+    editing.value.status = status
+  }
+}
+
+/** @param {() => Promise<boolean>} action */
+async function runLifecycle(action) {
+  const ok = await action()
+  if (ok) {
+    emit('saved')
+  }
+  return ok
+}
+
+async function doActivate() {
+  if (await runLifecycle(() => lifecycle.activate(editing.value))) {
+    patchStatus('enabled')
+  }
+}
+
+async function doDeactivate() {
+  if (await runLifecycle(() => lifecycle.deactivate(editing.value))) {
+    patchStatus('disabled')
+  }
+}
+
+async function doRestore() {
+  if (await runLifecycle(() => lifecycle.restore(editing.value))) {
+    patchStatus('disabled')
+  }
+}
+
+async function doDelete() {
+  if (await runLifecycle(() => lifecycle.softDelete(editing.value))) {
+    emit('update:show', false)
+  }
+}
 </script>
 
 <template>
@@ -330,6 +385,47 @@ function onClose() {
     @update:show="(v) => emit('update:show', v)"
     @close="onClose"
   >
+    <template
+      v-if="isEdit"
+      #header-extra
+    >
+      <n-space
+        :wrap="false"
+        :size="4"
+      >
+        <n-button
+          v-if="actions.includes('activate')"
+          size="small"
+          @click="doActivate"
+        >
+          Активировать
+        </n-button>
+        <n-button
+          v-if="actions.includes('deactivate')"
+          size="small"
+          @click="doDeactivate"
+        >
+          Деактивировать
+        </n-button>
+        <n-button
+          v-if="actions.includes('restore')"
+          size="small"
+          @click="doRestore"
+        >
+          Восстановить
+        </n-button>
+        <n-button
+          v-if="actions.includes('delete')"
+          size="small"
+          type="error"
+          ghost
+          @click="doDelete"
+        >
+          Удалить
+        </n-button>
+      </n-space>
+    </template>
+
     <n-form
       ref="formRef"
       :model="model"
