@@ -6,6 +6,7 @@ import WorkOrdersPage from '../pages/WorkOrdersPage.vue'
 import WorksPage from '../pages/WorksPage.vue'
 import UsersPage from '../pages/UsersPage.vue'
 import ResourcesPage from '../pages/ResourcesPage.vue'
+import QuantityUnitsPage from '../pages/QuantityUnitsPage.vue'
 import { useAuthStore } from '../stores/auth'
 import { useMenuStore } from '../stores/menu'
 
@@ -55,6 +56,11 @@ const routes = [
         path: 'resources/:kind',
         name: 'resources',
         component: ResourcesPage,
+      },
+      {
+        path: 'quantity-units',
+        name: 'quantity-units',
+        component: QuantityUnitsPage,
       },
     ],
   },

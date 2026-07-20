@@ -10,20 +10,22 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@supabase/postgrest-js": "^2.0.0",
+    "naive-ui": "^2.41.0",
+    "ol": "^10.9.0",
+    "pinia": "^3.0.0",
     "vue": "^3.5.0",
     "vue-router": "^5.0.0",
-    "pinia": "^3.0.0",
-    "@supabase/postgrest-js": "^2.0.0",
-    "naive-ui": "^2.41.0"
+    "vue3-openlayers": "^12.2.2"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^6.0.0",
-    "vite": "^8.0.0",
-    "tailwindcss": "^4.0.0",
+    "@eslint/js": "^10.0.0",
     "@tailwindcss/vite": "^4.0.0",
+    "@vitejs/plugin-vue": "^6.0.0",
     "eslint": "^10.0.0",
     "eslint-plugin-vue": "^10.0.0",
-    "@eslint/js": "^10.0.0",
-    "globals": "^17.0.0"
+    "globals": "^17.0.0",
+    "tailwindcss": "^4.0.0",
+    "vite": "^8.0.0"
   }
 }
