@@ -17,14 +17,18 @@ const orgManageShow = ref(false)
 
 <template>
   <div class="flex h-full flex-col gap-4 p-6">
-    <div class="flex items-center justify-between">
-      <n-h1 class="!mb-0">
-        Пользователи
-      </n-h1>
-      <n-button @click="orgManageShow = true">
-        Организации
-      </n-button>
-    </div>
+    <header class="page-head-left">
+      <div>
+        <h1 class="page-head-left-title">
+          Пользователи
+        </h1>
+      </div>
+      <div class="page-head-right">
+        <n-button @click="orgManageShow = true">
+          Организации
+        </n-button>
+      </div>
+    </header>
 
     <div class="min-h-0 grow">
       <UsersGrid />

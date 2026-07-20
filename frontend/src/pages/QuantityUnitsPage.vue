@@ -10,7 +10,13 @@ import QtyUnitsGrid from '../components/references/QtyUnitsGrid.vue'
 
 <template>
   <div class="p-6 h-full flex flex-col">
-    <n-h1>Единицы объёма работ</n-h1>
+    <header class="page-head-left">
+      <div>
+        <h1 class="page-head-left-title">
+          Единицы объёма работ
+        </h1>
+      </div>
+    </header>
     <div class="flex-1 min-h-0">
       <QtyUnitsGrid />
     </div>

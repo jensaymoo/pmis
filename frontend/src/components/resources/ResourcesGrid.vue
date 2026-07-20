@@ -8,7 +8,7 @@
 // resources-personnel.md §4.4 (общий состав для всех трёх видов).
 //
 import { computed, h, ref, watch } from 'vue'
-import { NTag, NTooltip, NEllipsis, NInput, NSelect } from 'naive-ui'
+import { NTag, NTooltip, NEllipsis, NInput, NCheckboxGroup, NCheckbox, NSpace } from 'naive-ui'
 import { useAuthStore } from '../../stores/auth'
 import { getClient } from '../../lib/postgrest'
 import { useReferenceList } from '../../adapters/naivePostgrest'
@@ -17,6 +17,7 @@ import GridFilterHeader from '../references/GridFilterHeader.vue'
 import ResourceFormModal from './ResourceFormModal.vue'
 import UnitsTableModal from './UnitsTableModal.vue'
 import GroupsTableModal from './GroupsTableModal.vue'
+import { STATUS_OPTIONS, DEFAULT_STATUSES } from '../../constants/statusOptions'
 
 const props = defineProps({
   /** @type {import('vue').PropType<'personnel'|'equipment'|'materials'>} */
@@ -140,12 +141,7 @@ function isOwnZone(row) {
 
 // --- заголовки колонок с попаперами-фильтрами ---
 
-const statusOptions = [
-  { label: 'Создана', value: 'created' },
-  { label: 'Активна', value: 'enabled' },
-  { label: 'Отключена', value: 'disabled' },
-  { label: 'Удалена', value: 'deprecated' },
-]
+const statusOptions = STATUS_OPTIONS
 
 /**
  * Заголовок колонки «Наименование» с попапером текстового поиска.
@@ -184,27 +180,37 @@ function statusHeader() {
     GridFilterHeader,
     {
       label: 'Статус',
-      modelValue: list.statusFilter.value.join(','),
-      apply: (v) => (list.statusFilter.value = v.split(',')),
-      active: list.statusFilter.value.includes('deprecated'),
+      modelValue: list.statusFilter.value,
+      apply: (v) => (list.statusFilter.value = v),
+      active: !arraysEqual(list.statusFilter.value, DEFAULT_STATUSES),
     },
     {
       default: ({ value, update }) =>
         h(
-          NSelect,
+          NCheckboxGroup,
           {
             value: value.value,
-            multiple: true,
-            clearable: true,
-            size: 'small',
-            placeholder: 'Статус',
-            style: 'width: 220px',
-            options: statusOptions,
             'onUpdate:value': update,
           },
+          () =>
+            h(
+              NSpace,
+              { vertical: true, size: 4 },
+              () =>
+                statusOptions.map((opt) =>
+                  h(NCheckbox, { value: opt.value, label: opt.label }),
+                ),
+            ),
         ),
     },
   )
+}
+
+/** Побитовое сравнение двух массивов статусов без учёта порядка. */
+function arraysEqual(a, b) {
+  if (a.length !== b.length) return false
+  const set = new Set(a)
+  return b.every((x) => set.has(x))
 }
 
 // --- колонки грида ---

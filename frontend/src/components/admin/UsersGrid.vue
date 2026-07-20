@@ -9,7 +9,7 @@
 // сервер (RLS users_update/users_delete) перепроверяет всё самостоятельно (403).
 //
 import { ref, computed, h, watch } from 'vue'
-import { NButton, NTag, NInput, NSelect, NSpace } from 'naive-ui'
+import { NButton, NTag, NInput, NSelect, NCheckboxGroup, NCheckbox, NSpace } from 'naive-ui'
 import { getClient } from '../../lib/postgrest'
 import { useAuthStore } from '../../stores/auth'
 import { useReferenceList } from '../../adapters/naivePostgrest'
@@ -17,6 +17,7 @@ import { useRecordLifecycle } from '../../composables/useRecordLifecycle'
 import StatusTag from '../references/StatusTag.vue'
 import GridFilterHeader from '../references/GridFilterHeader.vue'
 import OrgUnitTree from './OrgUnitTree.vue'
+import { STATUS_OPTIONS, DEFAULT_STATUSES } from '../../constants/statusOptions'
 
 const auth = useAuthStore()
 const lifecycle = useRecordLifecycle({ getClient, table: 'users', entityLabel: 'пользователя' })
@@ -59,12 +60,7 @@ loadRoles()
 
 const roleOptions = computed(() => roles.value.map((r) => ({ label: r.name, value: r.code })))
 
-const statusOptions = [
-  { label: 'Создана', value: 'created' },
-  { label: 'Активна', value: 'enabled' },
-  { label: 'Отключена', value: 'disabled' },
-  { label: 'Удалена', value: 'deprecated' },
-]
+const statusOptions = STATUS_OPTIONS
 
 function roleLabel(code) {
   return roles.value.find((r) => r.code === code)?.name ?? code
@@ -332,27 +328,37 @@ function statusHeader() {
     GridFilterHeader,
     {
       label: 'Статус',
-      modelValue: statusFilter.value.join(','),
-      apply: () => {},
-      active: statusFilter.value.includes('deprecated'),
+      modelValue: statusFilter.value,
+      apply: (v) => (statusFilter.value = v),
+      active: !arraysEqual(statusFilter.value, DEFAULT_STATUSES),
     },
     {
       default: ({ value, update }) =>
-        h(NSelect, {
-          value: value.value ? value.value.split(',') : [],
-          options: statusOptions,
-          placeholder: 'Статус',
-          multiple: true,
-          clearable: true,
-          size: 'small',
-          style: 'width: 220px',
-          'onUpdate:value': (arr) => {
-            statusFilter.value = arr
-            update(arr.join(','))
+        h(
+          NCheckboxGroup,
+          {
+            value: value.value,
+            'onUpdate:value': update,
           },
-        }),
+          () =>
+            h(
+              NSpace,
+              { vertical: true, size: 4 },
+              () =>
+                statusOptions.map((opt) =>
+                  h(NCheckbox, { value: opt.value, label: opt.label }),
+                ),
+            ),
+        ),
     },
   )
+}
+
+/** Побитовое сравнение двух массивов статусов без учёта порядка. */
+function arraysEqual(a, b) {
+  if (a.length !== b.length) return false
+  const set = new Set(a)
+  return b.every((x) => set.has(x))
 }
 
 const columns = computed(() => [

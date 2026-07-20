@@ -10,13 +10,14 @@
 // скрыта (sections-screen.md §4.6, resources-pattern.md §3.2).
 //
 import { h, ref, computed } from 'vue'
-import { NButton, NSpace, NTag, NInput, NRadioGroup, NRadio } from 'naive-ui'
+import { NButton, NSpace, NTag, NInput, NCheckboxGroup, NCheckbox } from 'naive-ui'
 import { useAuthStore } from '../../stores/auth'
 import { useReferenceList } from '../../adapters/naivePostgrest'
 import { getClient } from '../../lib/postgrest'
 import StatusTag from './StatusTag.vue'
 import SectionFormModal from './SectionFormModal.vue'
 import GridFilterHeader from './GridFilterHeader.vue'
+import { STATUS_OPTIONS, DEFAULT_STATUSES } from '../../constants/statusOptions'
 
 const props = defineProps({
   /** Модалка открыта */
@@ -50,16 +51,7 @@ const showForm = ref(false)
 const editingRecord = ref(null)
 const selectedRow = ref(null)
 
-const statusOptions = [
-  { label: 'Активные', value: 'created,enabled,disabled' },
-  { label: 'Все, включая удалённые', value: 'created,enabled,disabled,deprecated' },
-]
-const statusFilterModel = computed({
-  get: () => statusFilter.value.join(','),
-  set: (v) => {
-    statusFilter.value = v.split(',')
-  },
-})
+const statusOptions = STATUS_OPTIONS
 
 /** @param {object} record @returns {boolean} */
 function isOwnRecord(record) {
@@ -134,27 +126,37 @@ function statusHeader() {
     GridFilterHeader,
     {
       label: 'Статус',
-      modelValue: statusFilterModel.value,
-      apply: (v) => (statusFilterModel.value = v),
-      active: statusFilterModel.value.includes('deprecated'),
+      modelValue: statusFilter.value,
+      apply: (v) => (statusFilter.value = v),
+      active: !arraysEqual(statusFilter.value, DEFAULT_STATUSES),
     },
     {
       default: ({ value, update }) =>
         h(
-          NRadioGroup,
-          { value: value.value, 'onUpdate:value': update },
+          NCheckboxGroup,
+          {
+            value: value.value,
+            'onUpdate:value': update,
+          },
           () =>
             h(
               NSpace,
               { vertical: true, size: 4 },
               () =>
                 statusOptions.map((opt) =>
-                  h(NRadio, { value: opt.value }, () => opt.label),
+                  h(NCheckbox, { value: opt.value, label: opt.label }),
                 ),
             ),
         ),
     },
   )
+}
+
+/** Побитовое сравнение двух массивов статусов без учёта порядка. */
+function arraysEqual(a, b) {
+  if (a.length !== b.length) return false
+  const set = new Set(a)
+  return b.every((x) => set.has(x))
 }
 
 const KIND_LABELS = { linear: 'Протяжённый', area: 'Площадной' }

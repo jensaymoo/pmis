@@ -6,7 +6,13 @@
 
 <template>
   <div class="p-6">
-    <n-h1>Наряды</n-h1>
+    <header class="page-head-left">
+      <div>
+        <h1 class="page-head-left-title">
+          Наряды
+        </h1>
+      </div>
+    </header>
     <p>Экран в разработке</p>
   </div>
 </template>

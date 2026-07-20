@@ -51,6 +51,13 @@ export function useReferenceList(opts) {
   const page = ref(1)
   const pageSize = ref(DEFAULT_PAGE_SIZE)
 
+  // Ключ последнего ОТПРАВЛЕННОГО запроса. Нужен, чтобы не слать два
+  // одинаковых запроса подряд (гонка debounce-эмита фильтра и его же
+  // flush по закрытию попапера, либо синхронизация modelValue) — пока
+  // висит ответ на такой же ключ, повторный reload пропускается.
+  /** @type {string|null} */
+  let inflightKey = null
+
   /**
    * Перезагружает текущую страницу с учётом поиска, фильтра статуса и
    * дополнительных фильтров. Не бросает исключение — ошибка логируется,
@@ -58,6 +65,19 @@ export function useReferenceList(opts) {
    * @returns {Promise<void>}
    */
   async function reload() {
+    const key = JSON.stringify([
+      page.value,
+      pageSize.value,
+      search.value,
+      statusFilter.value,
+      extraFilters(),
+    ])
+    // Дедупликация: тот же запрос уже в полёте — второй не шлём. Явный
+    // вызов после сохранения (когда loading уже false) всё равно пройдёт.
+    if (loading.value && key === inflightKey) {
+      return
+    }
+    inflightKey = key
     loading.value = true
     try {
       let query = getClient()
@@ -86,6 +106,11 @@ export function useReferenceList(opts) {
         total.value = count ?? data.length
       }
     } finally {
+      // Сбрасываем ключ только если он всё ещё соответствует этому запросу —
+      // чтобы новый reload под тем же ключом (после save) прошёл заново.
+      if (inflightKey === key) {
+        inflightKey = null
+      }
       loading.value = false
     }
   }

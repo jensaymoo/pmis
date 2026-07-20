@@ -6,7 +6,13 @@
 
 <template>
   <div class="p-6">
-    <n-h1>Диаграмма Ганта</n-h1>
+    <header class="page-head-left">
+      <div>
+        <h1 class="page-head-left-title">
+          Диаграмма Ганта
+        </h1>
+      </div>
+    </header>
     <p>Экран в разработке</p>
   </div>
 </template>

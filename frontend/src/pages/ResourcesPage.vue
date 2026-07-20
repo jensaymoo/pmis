@@ -24,7 +24,13 @@ const title = computed(() => TITLES[kind.value] ?? null)
 <template>
   <div class="p-6 h-full flex flex-col">
     <template v-if="title">
-      <n-h1>{{ title }}</n-h1>
+      <header class="page-head-left">
+        <div>
+          <h1 class="page-head-left-title">
+            {{ title }}
+          </h1>
+        </div>
+      </header>
       <ResourcesGrid
         :key="kind"
         :kind="kind"
@@ -32,7 +38,13 @@ const title = computed(() => TITLES[kind.value] ?? null)
       />
     </template>
     <template v-else>
-      <n-h1>Справочник ресурсов</n-h1>
+      <header class="page-head-left">
+        <div>
+          <h1 class="page-head-left-title">
+            Справочник ресурсов
+          </h1>
+        </div>
+      </header>
       <p>Неизвестный вид ресурса</p>
     </template>
   </div>
