@@ -2,16 +2,19 @@
 //
 // Грид справочника «Единицы объёма работ» — planning-qty-unit.md §4.4.
 // Плоский грид: Наименование, Сокращение, Целочисленность, Организация,
-// Статус, Действия. Поддерживает режим выбора (resources-pattern.md §2.2, §7.4).
+// Статус. Фильтры (поиск по имени и по статусу) вынесены в попаперы в
+// заголовках колонок (resources-pattern.md §7.1). Действия жизненного цикла
+// перенесены в модалку редактирования (слот #header-extra). Поддерживает
+// режим выбора (resources-pattern.md §2.2).
 //
 import { h, ref, computed } from 'vue'
-import { NButton, NSpace } from 'naive-ui'
+import { NButton, NInput, NRadioGroup, NRadio, NSpace } from 'naive-ui'
 import { useAuthStore } from '../../stores/auth'
 import { useReferenceList } from '../../adapters/naivePostgrest'
-import { useRecordLifecycle } from '../../composables/useRecordLifecycle'
 import { getClient } from '../../lib/postgrest'
 import StatusTag from './StatusTag.vue'
 import QtyUnitFormModal from './QtyUnitFormModal.vue'
+import GridFilterHeader from './GridFilterHeader.vue'
 
 const props = defineProps({
   /** Режим выбора (пикер) — resources-pattern.md §2.2 */
@@ -21,7 +24,6 @@ const props = defineProps({
 const emit = defineEmits(['pick'])
 
 const auth = useAuthStore()
-const isAdmin = computed(() => auth.user?.role === 'admin')
 const isDispatcher = computed(() => auth.user?.role === 'dispatcher')
 
 const {
@@ -39,8 +41,6 @@ const {
   defaultStatuses: isDispatcher.value ? ['enabled'] : ['created', 'enabled', 'disabled'],
   order: 'name',
 })
-
-const lifecycle = useRecordLifecycle({ getClient, table: 'qty_unit', entityLabel: 'единицу объёма работ' })
 
 const showForm = ref(false)
 const editingRecord = ref(null)
@@ -89,65 +89,92 @@ function onPick() {
   }
 }
 
-const columns = computed(() => {
-  const cols = [
-    { title: 'Наименование', key: 'name' },
-    { title: 'Сокращение', key: 'short_name', width: 120 },
+/**
+ * Заголовок колонки «Наименование» с попапером текстового поиска.
+ * Debounce перед отправкой значения в search берёт на себя GridFilterHeader.
+ * @returns {import('vue').VNode}
+ */
+function nameHeader() {
+  return h(
+    GridFilterHeader,
     {
-      title: 'Целочисленность',
-      key: 'is_integer',
-      width: 130,
-      render: (row) => (row.is_integer ? 'Целая' : 'Дробная'),
+      label: 'Наименование',
+      modelValue: search.value,
+      apply: (v) => (search.value = v),
+      active: !!search.value.trim(),
     },
     {
-      title: 'Организация',
-      key: 'org_unit',
-      render: (row) =>
+      default: ({ value, update }) =>
+        h(NInput, {
+          value: value.value,
+          clearable: true,
+          size: 'small',
+          placeholder: 'Поиск...',
+          style: 'width: 224px',
+          'onUpdate:value': update,
+        }),
+    },
+  )
+}
+
+/**
+ * Заголовок колонки «Статус» с попапером выбора статуса.
+ * @returns {import('vue').VNode}
+ */
+function statusHeader() {
+  return h(
+    GridFilterHeader,
+    {
+      label: 'Статус',
+      modelValue: statusFilterModel.value,
+      apply: (v) => (statusFilterModel.value = v),
+      active: statusFilterModel.value.includes('deprecated'),
+    },
+    {
+      default: ({ value, update }) =>
         h(
-          'span',
-          { class: !isOwnRecord(row) ? 'text-gray-400' : '' },
-          row.org_unit?.name ?? row.org_unit_id,
+          NRadioGroup,
+          { value: value.value, 'onUpdate:value': update },
+          () =>
+            h(
+              NSpace,
+              { vertical: true, size: 4 },
+              () =>
+                statusOptions.map((opt) =>
+                  h(NRadio, { value: opt.value }, () => opt.label),
+                ),
+            ),
         ),
     },
-    {
-      title: 'Статус',
-      key: 'status',
-      width: 110,
-      render: (row) => h(StatusTag, { status: row.status }),
-    },
-  ]
+  )
+}
 
-  if (!props.pickMode && !isDispatcher.value) {
-    cols.push({
-      title: 'Действия',
-      key: 'actions',
-      width: 220,
-      render: (row) => {
-        if (!isOwnRecord(row)) return null
-        const actions = lifecycle.availableActions(row.status, isAdmin.value)
-        return h(NSpace, { size: 'small' }, () => [
-          actions.includes('activate')
-            ? h(NButton, { size: 'tiny', onClick: () => lifecycle.activate(row).then((ok) => ok && reload()) }, () => 'Активировать')
-            : null,
-          actions.includes('deactivate')
-            ? h(NButton, { size: 'tiny', onClick: () => lifecycle.deactivate(row).then((ok) => ok && reload()) }, () => 'Деактивировать')
-            : null,
-          row.status !== 'deprecated'
-            ? h(NButton, { size: 'tiny', onClick: () => openEdit(row) }, () => 'Редактировать')
-            : null,
-          actions.includes('delete')
-            ? h(NButton, { size: 'tiny', type: 'error', onClick: () => lifecycle.softDelete(row).then((ok) => ok && reload()) }, () => 'Удалить')
-            : null,
-          actions.includes('restore')
-            ? h(NButton, { size: 'tiny', onClick: () => lifecycle.restore(row).then((ok) => ok && reload()) }, () => 'Восстановить')
-            : null,
-        ])
-      },
-    })
-  }
-
-  return cols
-})
+const columns = computed(() => [
+  { title: nameHeader, key: 'name' },
+  { title: 'Сокращение', key: 'short_name', width: 180 },
+  {
+    title: 'Целочисленность',
+    key: 'is_integer',
+    width: 170,
+    render: (row) => (row.is_integer ? 'Целая' : 'Дробная'),
+  },
+  {
+    title: 'Организация',
+    key: 'org_unit',
+    render: (row) =>
+      h(
+        'span',
+        { class: !isOwnRecord(row) ? 'text-gray-400' : '' },
+        row.org_unit?.name ?? row.org_unit_id,
+      ),
+  },
+  {
+    title: statusHeader,
+    key: 'status',
+    width: 110,
+    render: (row) => h(StatusTag, { status: row.status }),
+  },
+])
 
 function onSaved() {
   reload()
@@ -156,21 +183,7 @@ function onSaved() {
 
 <template>
   <div class="flex flex-col h-full">
-    <div class="flex items-center justify-between gap-4 mb-3">
-      <div class="flex items-center gap-3 flex-1">
-        <n-input
-          v-model:value="search"
-          placeholder="Поиск по наименованию"
-          clearable
-          class="max-w-xs"
-        />
-        <n-select
-          v-if="!isDispatcher"
-          v-model:value="statusFilterModel"
-          :options="statusOptions"
-          class="max-w-xs"
-        />
-      </div>
+    <div class="flex items-center justify-end mb-3">
       <n-button
         v-if="!isDispatcher"
         type="primary"

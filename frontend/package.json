@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@supabase/postgrest-js": "^2.0.0",
+    "@vicons/ionicons5": "^0.13.0",
+    "@vueuse/core": "^14.3.0",
     "naive-ui": "^2.41.0",
     "ol": "^10.9.0",
     "pinia": "^3.0.0",

@@ -8,9 +8,15 @@
 // создании и показана как неизменяемое поле при редактировании
 // (resources-pattern.md §6.2).
 //
+// Действия жизненного цикла (активировать, деактивировать, удалить,
+// восстановить) вынесены в слот #header-extra модалки (справа от заголовка,
+// resources-pattern.md §7.1) — в самой таблице кнопок действий больше нет.
+//
 import { ref, computed, watch, nextTick } from 'vue'
-import { useNotification } from 'naive-ui'
+import { useNotification, NSpace, NButton } from 'naive-ui'
 import { getClient } from '../../lib/postgrest'
+import { useAuthStore } from '../../stores/auth'
+import { useRecordLifecycle } from '../../composables/useRecordLifecycle'
 
 const props = defineProps({
   show: { type: Boolean, required: true },
@@ -20,12 +26,24 @@ const props = defineProps({
 
 const emit = defineEmits(['update:show', 'saved'])
 
+const auth = useAuthStore()
+const isAdmin = computed(() => auth.user?.role === 'admin')
+
 const notification = useNotification()
 const formRef = ref(null)
 const nameInputRef = ref(null)
 const loading = ref(false)
 
 const isEdit = computed(() => !!props.record)
+
+const lifecycle = useRecordLifecycle({ getClient, table: 'qty_unit', entityLabel: 'единицу объёма работ' })
+
+/** Локальная копия записи для отражения смены статуса без мутации пропса. */
+const editing = ref(null)
+
+const actions = computed(() =>
+  editing.value ? lifecycle.availableActions(editing.value.status, isAdmin.value) : [],
+)
 
 const model = ref({
   name: '',
@@ -43,6 +61,7 @@ watch(
   () => props.show,
   async (visible) => {
     if (!visible) return
+    editing.value = props.record ? { ...props.record } : null
     model.value = props.record
       ? {
           name: props.record.name,
@@ -55,6 +74,46 @@ watch(
     nameInputRef.value?.focus()
   },
 )
+
+/** Обновляет статус локальной копии записи после lifecycle-действия. */
+function patchStatus(status) {
+  if (editing.value) {
+    editing.value.status = status
+  }
+}
+
+/** @param {() => Promise<boolean>} action */
+async function runLifecycle(action) {
+  const ok = await action()
+  if (ok) {
+    emit('saved')
+  }
+  return ok
+}
+
+async function doActivate() {
+  if (await runLifecycle(() => lifecycle.activate(editing.value))) {
+    patchStatus('enabled')
+  }
+}
+
+async function doDeactivate() {
+  if (await runLifecycle(() => lifecycle.deactivate(editing.value))) {
+    patchStatus('disabled')
+  }
+}
+
+async function doRestore() {
+  if (await runLifecycle(() => lifecycle.restore(editing.value))) {
+    patchStatus('disabled')
+  }
+}
+
+async function doDelete() {
+  if (await runLifecycle(() => lifecycle.softDelete(editing.value))) {
+    emit('update:show', false)
+  }
+}
 
 /**
  * Отправляет форму: POST при создании, PATCH при редактировании.
@@ -106,10 +165,53 @@ function onClose() {
     preset="card"
     :title="isEdit ? 'Единица объёма работ' : 'Новая единица объёма работ'"
     class="w-full max-w-md"
-    :mask-closable="false"
+    :closable="false"
+    :close-on-esc="true"
+    :mask-closable="true"
     @update:show="(v) => emit('update:show', v)"
     @close="onClose"
   >
+    <template
+      v-if="isEdit"
+      #header-extra
+    >
+      <n-space
+        :wrap="false"
+        :size="4"
+      >
+        <n-button
+          v-if="actions.includes('activate')"
+          size="small"
+          @click="doActivate"
+        >
+          Активировать
+        </n-button>
+        <n-button
+          v-if="actions.includes('deactivate')"
+          size="small"
+          @click="doDeactivate"
+        >
+          Деактивировать
+        </n-button>
+        <n-button
+          v-if="actions.includes('restore')"
+          size="small"
+          @click="doRestore"
+        >
+          Восстановить
+        </n-button>
+        <n-button
+          v-if="actions.includes('delete')"
+          size="small"
+          type="error"
+          ghost
+          @click="doDelete"
+        >
+          Удалить
+        </n-button>
+      </n-space>
+    </template>
+
     <n-form
       ref="formRef"
       :model="model"
