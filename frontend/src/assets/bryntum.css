@@ -1,0 +1,55 @@
+/*
+ * Стили сторонней библиотеки Bryntum Gantt — изолированная точка подключения
+ * (frontend-spec.md §9 «Изоляция и приоритеты»). Файл переопределяет
+ * CSS-переменные темы Bryntum акцентной палитрой Naive UI (App.vue
+ * themeOverrides.common.primaryColor и соседи), чтобы виджет визуально не
+ * выбивался из остального приложения. Тема Bryntum (Stockholm, светлая)
+ * импортируется из пакета в GanttView.vue вместе с этим файлом.
+ *
+ * Сам пакет @bryntum/gantt ещё не установлен (частный registry, ставит
+ * пользователь отдельно) — этот файл написан заранее, под ожидаемую версию
+ * API переменных темы Stockholm. Основной агент донастроит после установки,
+ * если имена переменных разойдутся.
+ */
+
+:root {
+  /* Акцентная палитра — синхронизирована с App.vue themeOverrides.common */
+  --b-blue: #014eb4;
+  --b-blue-10: #013e8f;
+  --b-blue-20: #012e6b;
+
+  /* Переменные темы Stockholm (см. https://bryntum.com/products/gantt/docs/guide/Gantt/customization/theme) */
+  --primary: var(--b-blue);
+  --accent-color: var(--b-blue);
+  --hover-color: var(--b-blue-10);
+
+  /* Полоса выделенной строки/бара */
+  --grid-row-selected-background-color: rgba(1, 78, 180, 0.08);
+  --gantt-task-selected-border-color: var(--b-blue);
+}
+
+/* Контейнер виджета растягивается на всю выделенную область (GanttView.vue
+   задаёт flex: 1; min-height: 0 на обёртке) — сам Bryntum ожидает явную
+   высоту от родителя, без неё схлопывается до 0. */
+.pmis-gantt-container,
+.pmis-gantt-container .b-gantt {
+  width: 100%;
+  height: 100%;
+}
+
+/* Бары составных работ — акцентный цвет, чуть темнее листовых, чтобы
+   визуально отличать суммарный бар от обычного без дополнительной разметки. */
+.pmis-gantt-container .b-gantt-task.b-task-parent .b-gantt-task-content {
+  background-color: var(--b-blue-10);
+}
+
+/* Вехи — ромб, залитый акцентным цветом (planning-gantt.md §4.3). */
+.pmis-gantt-container .b-gantt-task.b-milestone .b-sch-event-content {
+  background-color: var(--b-blue);
+}
+
+/* Прогресс-заливка read-only (планировщик не должен принимать её за
+   интерактивный элемент) — курсор по умолчанию, без resize-подсказки. */
+.pmis-gantt-container .b-gantt-task-percent-bar {
+  cursor: default;
+}

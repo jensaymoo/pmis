@@ -10,6 +10,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@bryntum/gantt": "npm:@bryntum/gantt-trial@^7.3.3",
     "@supabase/postgrest-js": "^2.0.0",
     "@vicons/ionicons5": "^0.13.0",
     "@vueuse/core": "^14.3.0",

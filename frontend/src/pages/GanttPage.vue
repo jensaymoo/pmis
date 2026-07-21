@@ -1,18 +1,14 @@
 <script setup>
 //
-// Заглушка экрана диаграммы Ганта. Реальная логика появится в Фазе 6.
+// Экран «Гант» (Фаза 6) — planning-gantt.md §4.1: диаграмма занимает всю
+// область контента, без внутренних отступов страницы (в отличие от других
+// экранов с .page-head-left). Тулбар и сама диаграмма — внутри GanttView.
 //
+import GanttView from '../components/gantt/GanttView.vue'
 </script>
 
 <template>
-  <div class="p-6">
-    <header class="page-head-left">
-      <div>
-        <h1 class="page-head-left-title">
-          Диаграмма Ганта
-        </h1>
-      </div>
-    </header>
-    <p>Экран в разработке</p>
+  <div class="h-full flex flex-col">
+    <GanttView class="flex-1 min-h-0" />
   </div>
 </template>
