@@ -183,15 +183,25 @@ function onSaved() {
 
 <template>
   <div class="flex flex-col h-full">
-    <div class="flex items-center justify-end mb-3">
-      <n-button
-        v-if="!isDispatcher"
-        type="primary"
-        @click="openCreate"
-      >
-        Создать
-      </n-button>
-    </div>
+    <header class="page-head-left">
+      <div>
+        <h1 class="page-head-left-title">
+          Единицы объёма работ
+        </h1>
+        <div class="page-head-left-subtitle">
+          Справочник единиц объёма работ проекта
+        </div>
+      </div>
+      <div class="page-head-right">
+        <n-button
+          v-if="!isDispatcher"
+          type="primary"
+          @click="openCreate"
+        >
+          Создать
+        </n-button>
+      </div>
+    </header>
 
     <div class="flex-1 min-h-0">
       <n-data-table

@@ -16,7 +16,7 @@ const orgManageShow = ref(false)
 </script>
 
 <template>
-  <div class="flex h-full flex-col gap-4 p-6">
+  <div class="flex h-full flex-col gap-4">
     <header class="page-head-left">
       <div>
         <h1 class="page-head-left-title">
@@ -30,7 +30,7 @@ const orgManageShow = ref(false)
       </div>
     </header>
 
-    <div class="min-h-0 grow">
+    <div class="min-h-0 grow px-6 pb-6">
       <UsersGrid />
     </div>
 

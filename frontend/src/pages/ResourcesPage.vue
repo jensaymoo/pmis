@@ -22,7 +22,7 @@ const title = computed(() => TITLES[kind.value] ?? null)
 </script>
 
 <template>
-  <div class="p-6 h-full flex flex-col">
+  <div class="h-full flex flex-col">
     <template v-if="title">
       <header class="page-head-left">
         <div>
@@ -34,7 +34,7 @@ const title = computed(() => TITLES[kind.value] ?? null)
       <ResourcesGrid
         :key="kind"
         :kind="kind"
-        class="flex-1 min-h-0"
+        class="flex-1 min-h-0 px-6 pb-6"
       />
     </template>
     <template v-else>
@@ -45,7 +45,9 @@ const title = computed(() => TITLES[kind.value] ?? null)
           </h1>
         </div>
       </header>
-      <p>Неизвестный вид ресурса</p>
+      <p class="px-6 pb-6">
+        Неизвестный вид ресурса
+      </p>
     </template>
   </div>
 </template>

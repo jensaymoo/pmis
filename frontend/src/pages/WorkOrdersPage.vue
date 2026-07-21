@@ -5,7 +5,7 @@
 </script>
 
 <template>
-  <div class="p-6">
+  <div>
     <header class="page-head-left">
       <div>
         <h1 class="page-head-left-title">
@@ -13,6 +13,8 @@
         </h1>
       </div>
     </header>
-    <p>Экран в разработке</p>
+    <p class="px-6 pb-6">
+      Экран в разработке
+    </p>
   </div>
 </template>
